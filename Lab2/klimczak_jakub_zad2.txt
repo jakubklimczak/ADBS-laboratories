@@ -1,0 +1,155 @@
+Klimczak Jakub
+
+Na podstawie bazy danych Northwind opowiedzieć na poniższe pytania:
+
+1). Które pary produktów nigdy nie były kupowane w piątki
+
+2). Które zamówienia z USA zmieszczą się w budżecie 3000 jednostek waluty (decyduje data zamówienia - od najwcześniej złożonych zamówień).
+
+3). Które kategorie produktów są na trzecim miejscu pod względem wartości sprzedaży w poszczególnych dniach tygodnia i kwartałach
+
+4). Utworzyć wykres przedstawiający różnicę wartości przewożonych zakupów pomiędzy alfabetycznie uporządkowanymi kurierami.
+
+5). Które cztery różne produkty sprzedawane razem (na jednym zamówieniu) - sprzedawane były najczęściej
+
+1.
+
+WITH OrderDetailsDzienTygodnia AS (
+  SELECT 
+    od.OrderID, od.ProductID, p.ProductName,
+    FORMAT(o.OrderDate, 'dddd', 'pl-PL') AS DzienTygodnia
+  FROM [Order Details] od
+  JOIN Orders o ON od.OrderID = o.OrderID
+  JOIN Products p ON od.ProductID = p.ProductID
+),
+ParyProduktow AS (
+  SELECT DISTINCT 
+    a.ProductName AS ProduktA, b.ProductName AS ProduktB
+  FROM OrderDetailsDzienTygodnia a
+  JOIN OrderDetailsDzienTygodnia b 
+    ON a.OrderID = b.OrderID AND a.ProductID < b.ProductID
+),
+ParyKupioneWPiatek AS (
+  SELECT DISTINCT 
+    a.ProductName AS ProduktA, b.ProductName AS ProduktB
+  FROM OrderDetailsDzienTygodnia a
+  JOIN OrderDetailsDzienTygodnia b 
+    ON a.OrderID = b.OrderID AND a.ProductID < b.ProductID
+  WHERE a.DzienTygodnia = 'piątek' AND b.DzienTygodnia = 'piątek'
+)
+SELECT * FROM ParyProduktow
+EXCEPT
+SELECT *
+FROM ParyKupioneWPiatek;
+
+2.
+
+WITH Zamowienia AS (
+  SELECT 
+	c.CompanyName,
+    o.OrderID,
+    o.ShipCountry,
+	o.OrderDate,
+    SUM(od.UnitPrice * od.Quantity) AS Budżet
+  FROM Orders o
+  JOIN [Order Details] od ON o.OrderID = od.OrderID
+  JOIN Customers c on o.CustomerID = c.CustomerID
+  WHERE o.ShipCountry = 'USA'
+  GROUP BY c.CompanyName,  o.OrderID, o.OrderDate, o.ShipCountry
+)
+SELECT *
+FROM Zamowienia
+WHERE Budżet <= 3000;
+
+
+3.
+
+WITH DniTygodnia AS (
+  SELECT 
+    c.CategoryID, 
+	c.CategoryName,
+    FORMAT(o.OrderDate, 'dddd', 'pl-PL') AS DzieńLubKwartał,
+    SUM(od.UnitPrice * od.Quantity) AS Koszt,
+    'Dzien tygodnia' AS TypSortowania
+  FROM [Order Details] od
+  JOIN Products p ON od.ProductID = p.ProductID
+  JOIN Categories c ON p.CategoryID = c.CategoryID
+  JOIN Orders o ON od.OrderID = o.OrderID
+  GROUP BY c.CategoryID, c.CategoryName, FORMAT(o.OrderDate, 'dddd', 'pl-PL')
+),
+RankingDniTygodnia AS (
+  SELECT *,
+         RANK() OVER (PARTITION BY DzieńLubKwartał ORDER BY Koszt DESC) AS Pozycja
+  FROM DniTygodnia
+),
+Kwartały AS (
+  SELECT 
+    c.CategoryID, 
+	c.CategoryName,
+    CONCAT('Q', DATEPART(QUARTER, o.OrderDate)) AS DzieńLubKwartał,
+    SUM(od.UnitPrice * od.Quantity) AS Koszt,
+    'Kwartal' AS TypSortowania
+  FROM [Order Details] od
+  JOIN Products p ON od.ProductID = p.ProductID
+  JOIN Categories c ON p.CategoryID = c.CategoryID
+  JOIN Orders o ON od.OrderID = o.OrderID
+  GROUP BY c.CategoryID, c.CategoryName, DATEPART(QUARTER, o.OrderDate)
+),
+RankingKwartałów AS (
+  SELECT *,
+         RANK() OVER (PARTITION BY DzieńLubKwartał ORDER BY Koszt DESC) AS Pozycja
+  FROM Kwartały
+)
+SELECT * FROM RankingDniTygodnia
+WHERE Pozycja = 3
+UNION ALL
+SELECT * FROM RankingKwartałów
+WHERE Pozycja = 3;
+
+4.
+
+CREATE VIEW rozniceWartosciMiedzyKurierami AS
+WITH WartośćPrzewożonychTowarów AS (
+  SELECT 
+    s.CompanyName AS Kurier,
+    SUM(od.UnitPrice * od.Quantity) AS Koszt
+  FROM Orders o
+  JOIN Shippers s ON o.ShipVia = s.ShipperID
+  JOIN [Order Details] od ON o.OrderID = od.OrderID
+  GROUP BY s.CompanyName
+)
+SELECT 
+  *,
+  LAG(Koszt, 1) OVER (ORDER BY Kurier) AS PoprzedniKoszt,
+  Koszt - LAG(Koszt, 1, 0) OVER (ORDER BY Kurier) AS Różnica
+FROM WartośćPrzewożonychTowarów;
+
+5.
+
+WITH CzteryRozneProduktySprzedawaneRazem AS (
+  SELECT 
+    od1.OrderID,
+    MIN(p1.ProductName) AS Produkt1,
+    MIN(p2.ProductName) AS Produkt2,
+    MIN(p3.ProductName) AS Produkt3,
+    MIN(p4.ProductName) AS Produkt4
+  FROM [Order Details] od1
+  JOIN [Order Details] od2 ON od1.OrderID = od2.OrderID AND od1.ProductID < od2.ProductID
+  JOIN [Order Details] od3 ON od1.OrderID = od3.OrderID AND od2.ProductID < od3.ProductID
+  JOIN [Order Details] od4 ON od1.OrderID = od4.OrderID AND od3.ProductID < od4.ProductID
+  JOIN Products p1 ON od1.ProductID = p1.ProductID
+  JOIN Products p2 ON od2.ProductID = p2.ProductID
+  JOIN Products p3 ON od3.ProductID = p3.ProductID
+  JOIN Products p4 ON od4.ProductID = p4.ProductID
+  GROUP BY od1.OrderID, od1.ProductID, od2.ProductID, od3.ProductID, od4.ProductID
+),
+IloscZestawow AS (
+  SELECT 
+    Produkt1, Produkt2, Produkt3, Produkt4,
+    COUNT(*) AS Ilosc,
+	RANK() OVER (ORDER BY COUNT(*) DESC)  Ranking
+  FROM CzteryRozneProduktySprzedawaneRazem
+  GROUP BY Produkt1, Produkt2, Produkt3, Produkt4
+)
+SELECT * FROM IloscZestawow
+WHERE Ranking = 1 

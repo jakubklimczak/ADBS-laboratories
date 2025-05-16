@@ -1,0 +1,88 @@
+Jakub Klimczak
+
+Zadanie 1:
+
+create view liczba_osob_z_1985_per_kwartal as
+select 
+  datepart(quarter, data_urodzenia) as kwartal,
+  count(*) as liczba_osob
+from studenci
+where 
+  data_urodzenia is not null
+  and year(data_urodzenia) = 1985
+group by datepart(quarter, data_urodzenia);
+
+Zadanie 2:
+
+create view liczba_osob_per_dzien as
+select 
+  format(data_urodzenia, 'dddd', 'pl-PL') as dzien_tygodnia,
+  count(*) as liczba_osob
+from studenci
+where data_urodzenia is not null
+group by format(data_urodzenia, 'dddd', 'pl-PL');
+
+-- alternatywnie:
+
+set language polish;
+select
+  datename(weekday, data_urodzenia) as dzien_tygodnia,
+  count(*) as liczba_osob
+from studenci
+group by datename(weekday, data_urodzenia)
+order by
+  datepart(weekday, min(data_urodzenia));
+
+-- można też to porobić case'ami jeśli powyższe rozwiązanie jest niemożliwe, bądź jest się masochistą
+
+Zadanie 3:
+
+select
+  isnull(miasto, 'Nieznane miasto') as miasto,
+  isnull(plec, 'Nieznana płeć') as plec,
+  datename(month, data_urodzenia) as miesiac,
+  count(*) as liczba_osob,
+  sum(isnull(liczba_dzieci, 0)) as suma_dzieci
+from studenci
+group by
+  isnull(miasto, 'Nieznane miasto'),
+  isnull(plec, 'Nieznana płeć'),
+  datename(month, data_urodzenia)
+order by miasto, plec, miesiac;
+
+
+Zadanie 4:
+
+create or alter view pelnoletnie_matki_per_miesiac as
+select
+  format(data_urodzenia, 'MMMM', 'pl-PL') as miesiac_urodzenia,
+  count(*) as liczba_matek
+from studenci
+where plec = 'K' and liczba_dzieci > 0 and dateadd(year, 18, data_urodzenia) <= getdate()
+group by datename(month, data_urodzenia), format(data_urodzenia, 'MMMM', 'pl-PL');
+
+
+Zadanie 5:
+
+create or alter view wartosc_zamowien_kurier_kategoria as
+select
+  s.companyname as kurier,
+  c.categoryname as kategoria,
+  sum(od.unitprice * od.quantity * (1 - od.discount)) as wartosc_zamowien
+from orders o
+join shippers s on o.shipvia = s.shipperid
+join [order details] od on o.orderid = od.orderid
+join products p on od.productid = p.productid
+join categories c on p.categoryid = c.categoryid
+group by s.companyname, c.categoryname;
+
+Zadanie 6:
+create view liczba_sztuk_per_produkt_per_miesiac as
+select
+  p.productname,
+  format(o.orderdate, 'MMMM', 'pl-PL') as miesiac,
+  sum(od.quantity) as liczba_sztuk
+from [order details] od
+join orders o on od.orderid = o.orderid
+join products p on od.productid = p.productid
+group by p.productname, format(o.orderdate, 'MMMM', 'pl-PL');
